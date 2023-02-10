@@ -6,6 +6,7 @@ https://stackoverflow.com/a/61506979/807118
 
 # pylint: disable=invalid-name
 
+import asyncio
 import random
 import select
 import subprocess
@@ -243,7 +244,7 @@ async def response(duration: int = 1) -> Iterator[bytes]:
         # align with a duration window
         now = int(time.time())
         timestamp = now - (now % duration) + duration
-        time.sleep(timestamp - time.time())
+        await asyncio.sleep(timestamp - time.time())
 
         poll = select.poll()
         poll.register(pipe.stdout, select.POLLIN)
