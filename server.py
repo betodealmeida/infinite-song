@@ -16,7 +16,7 @@ import numpy as np
 from flask import Flask
 from flask import Response
 from scipy import signal
-from pedalboard import Delay, LadderFilter, Pedalboard, Reverb
+from pedalboard import Chorus, Delay, LadderFilter, Pedalboard, Reverb
 
 notes_fx = Pedalboard(
     [
@@ -28,23 +28,24 @@ notes_fx = Pedalboard(
 pads_fx = Pedalboard(
     [
         LadderFilter(mode=LadderFilter.Mode.LPF12, cutoff_hz=600),
-        Reverb(room_size=1.0),
+        Reverb(room_size=1.0, wet_level=0.75, dry_level=0.25, width=1.0),
+        Chorus(rate_hz=1 / 5.0),
     ]
 )
 bass_fx = Pedalboard(
     [
         LadderFilter(mode=LadderFilter.Mode.LPF12, cutoff_hz=300),
-        Reverb(room_size=0.5),
+        Reverb(room_size=0.25),
     ]
 )
 
 app = Flask(__name__)
 
 FRAMERATE = 24000
-PAD_VOLUME = 0.3
+PAD_VOLUME = 0.25
 BASS_VOLUME = 0.4
 NOTES_VOLUME = 0.8
-PAD_DURATION = 16
+PAD_DURATION = 32
 
 
 def get_frequency(note: str, A4: int = 440) -> float:
@@ -113,10 +114,10 @@ def get_chord(timestamp: int, duration: int = PAD_DURATION) -> [str]:
 def get_envelope(  # pylint: disable=too-many-arguments
     timestamp: int,
     window: int,
-    attack: float = 4.0,
+    attack: float = 8.0,
     decay: float = 2.0,
     sustain: float = 0.8,
-    release: float = 1.0,
+    release: float = 4.0,
 ) -> np.array:
     """
     Build an envelope for pads.
@@ -169,11 +170,18 @@ def get_audio(
     frequency = get_frequency(root) / 4.0
     t = np.linspace(timestamp, timestamp + duration, FRAMERATE * duration)
     audio = signal.sawtooth(2 * np.pi * frequency * t)
-    audio *= get_envelope(timestamp - duration, FRAMERATE * duration, attack=0.25)
+    audio *= get_envelope(
+        timestamp - duration,
+        FRAMERATE * duration,
+        attack=0.1,
+        decay=0.5,
+        sustain=0.9,
+        release=0.5,
+    )
     buffer += bass_fx(audio * BASS_VOLUME, FRAMERATE, reset=False)
 
     # generate 0-4 notes
-    k = 2 * np.pi / (1 * 60)
+    k = 2 * np.pi / 60
     drop_note = 4 + 8 * ((np.sin(timestamp * k) + 1) / 2)
     notes_buffer = np.zeros(FRAMERATE * duration)
     for i, c in enumerate(hash_[:4]):
@@ -183,7 +191,7 @@ def get_audio(
         window = FRAMERATE // 4
 
         # 5 minute LFO controls duty of the notes
-        k = 2 * np.pi / (5 * 60)
+        k = 2 * np.pi / 301
         duty = ((np.sin(timestamp * k) * 0.8) + 1) / 2
 
         # choose note frequency
@@ -217,7 +225,7 @@ def get_audio(
     return buffer.astype(np.float32).tobytes()
 
 
-def response() -> Iterator[bytes]:
+def response(duration: int = 1) -> Iterator[bytes]:
     """
     Encode the song on-the-fly as an MP3.
     """
@@ -227,8 +235,6 @@ def response() -> Iterator[bytes]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     ) as pipe:
-        duration = 1
-
         # align with a duration window
         now = int(time.time())
         timestamp = now - (now % duration) + duration
@@ -242,6 +248,18 @@ def response() -> Iterator[bytes]:
             timestamp += duration
             while poll.poll(0):
                 yield pipe.stdout.readline()
+
+
+def generate_song(duration: int, filename: str) -> None:
+    """
+    Generate a song of a specific length.
+    """
+    window = 16
+    with open(filename, "wb") as fp:
+        for i, chunk in enumerate(response(duration=window)):
+            fp.write(chunk)
+            if (i + 1) * window > duration:
+                break
 
 
 @app.route("/stream.mp3", methods=["GET"])
@@ -261,4 +279,5 @@ def stream() -> Response:
 
 
 if __name__ == "__main__":
+    # generate_song(29 * 24 * 60 * 60, "29_hour_long_song.mp3")
     app.run(host="0.0.0.0", port=8000, debug=True)
