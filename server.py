@@ -250,16 +250,19 @@ def response(duration: int = 1) -> Iterator[bytes]:
                 yield pipe.stdout.readline()
 
 
-def generate_song(duration: int, filename: str) -> None:
+def generate_song(song_duration: int, filename: str) -> None:
     """
     Generate a song of a specific length.
     """
-    window = 16
+    window_duration = 1
+    now = int(time.time())
+    timestamp = now - (now % window_duration) + window_duration
+
     with open(filename, "wb") as fp:
-        for i, chunk in enumerate(response(duration=window)):
+        for _ in range(song_duration):
+            chunk = get_audio(timestamp, window_duration)
             fp.write(chunk)
-            if (i + 1) * window > duration:
-                break
+            timestamp += window_duration
 
 
 @app.route("/stream.mp3", methods=["GET"])
@@ -279,5 +282,5 @@ def stream() -> Response:
 
 
 if __name__ == "__main__":
-    # generate_song(29 * 24 * 60 * 60, "29_hour_long_song.mp3")
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    generate_song(29 * 24 * 60 * 60, "29_hour_long_song.wav")
+    # app.run(host="0.0.0.0", port=8000, debug=True)
