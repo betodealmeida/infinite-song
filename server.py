@@ -253,10 +253,8 @@ async def response(duration: int = 1) -> Iterator[bytes]:
             while True:
                 pipe.stdin.write(get_audio(timestamp, duration))
                 timestamp += duration
-                print("BEFORE")
                 while poll.poll(0):
                     yield pipe.stdout.readline()
-                print("AFTER")
 
                 now = int(time.time())
                 offset = timestamp - now
