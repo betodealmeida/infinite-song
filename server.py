@@ -18,10 +18,22 @@ from flask import Response
 from scipy import signal
 from pedalboard import Delay, LadderFilter, Pedalboard, Reverb
 
-board = Pedalboard(
+notes_fx = Pedalboard(
     [
         Delay(delay_seconds=1 / 3.0, feedback=0.4, mix=0.25),
         LadderFilter(mode=LadderFilter.Mode.LPF12, cutoff_hz=600),
+        Reverb(room_size=0.5),
+    ]
+)
+pads_fx = Pedalboard(
+    [
+        LadderFilter(mode=LadderFilter.Mode.LPF12, cutoff_hz=600),
+        Reverb(room_size=1.0),
+    ]
+)
+bass_fx = Pedalboard(
+    [
+        LadderFilter(mode=LadderFilter.Mode.LPF12, cutoff_hz=300),
         Reverb(room_size=0.5),
     ]
 )
@@ -31,6 +43,7 @@ app = Flask(__name__)
 FRAMERATE = 24000
 PAD_VOLUME = 0.3
 BASS_VOLUME = 0.4
+NOTES_VOLUME = 0.8
 PAD_DURATION = 16
 
 
@@ -97,34 +110,41 @@ def get_chord(timestamp: int, duration: int = PAD_DURATION) -> [str]:
     return chords[chord]
 
 
-def get_envelope(timestamp: int, window: int) -> np.array:
+def get_envelope(  # pylint: disable=too-many-arguments
+    timestamp: int,
+    window: int,
+    attack: float = 4.0,
+    decay: float = 2.0,
+    sustain: float = 0.8,
+    release: float = 1.0,
+) -> np.array:
     """
     Build an envelope for pads.
 
     TODO: allow passing ASDR parameters.
     """
-    attack = 2
-    decay = 1
-    sustain = 0.8
-    release = 1
-
     envelope = np.ones(FRAMERATE * PAD_DURATION) * sustain
 
-    i = attack * FRAMERATE
+    i = int(attack * FRAMERATE)
     envelope[:i] = np.linspace(0, 1, i)
 
-    j = decay * FRAMERATE
+    j = int(decay * FRAMERATE)
     envelope[i : i + j] = np.linspace(1, sustain, j)
 
-    k = release * FRAMERATE
+    k = int(release * FRAMERATE)
     envelope[-k:] = np.linspace(sustain, 0, k)
 
-    offset = timestamp % PAD_DURATION
+    now = datetime.fromtimestamp(timestamp)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    t0 = int(start.timestamp())
+    offset = ((timestamp - t0) % PAD_DURATION) * FRAMERATE
 
     return envelope[offset : offset + window]
 
 
-def get_audio(timestamp: int, duration: int = 1) -> bytes:
+def get_audio(
+    timestamp: int, duration: int = 1
+) -> bytes:  # pylint: disable=too-many-locals
     """
     Build music snippet.
     """
@@ -133,24 +153,31 @@ def get_audio(timestamp: int, duration: int = 1) -> bytes:
 
     # pads
     chord = get_chord(timestamp)
+    pads_buffer = np.zeros(FRAMERATE * duration)
     for note in chord:
         frequency = get_frequency(note)
 
         t = np.linspace(timestamp, timestamp + duration, FRAMERATE * duration)
         audio = np.sin(2 * np.pi * frequency * t)
-        audio *= get_envelope(timestamp, FRAMERATE * duration)
-        buffer += audio * PAD_VOLUME
+        audio *= get_envelope(timestamp - duration, FRAMERATE * duration)
+        pads_buffer += audio * PAD_VOLUME
+
+    buffer += pads_fx(pads_buffer, FRAMERATE, reset=False)
 
     # bass
     root = chord[0]
     frequency = get_frequency(root) / 4.0
     t = np.linspace(timestamp, timestamp + duration, FRAMERATE * duration)
     audio = signal.sawtooth(2 * np.pi * frequency * t)
-    buffer += audio * BASS_VOLUME
+    audio *= get_envelope(timestamp - duration, FRAMERATE * duration, attack=0.25)
+    buffer += bass_fx(audio * BASS_VOLUME, FRAMERATE, reset=False)
 
     # generate 0-4 notes
+    k = 2 * np.pi / (1 * 60)
+    drop_note = 4 + 8 * ((np.sin(timestamp * k) + 1) / 2)
+    notes_buffer = np.zeros(FRAMERATE * duration)
     for i, c in enumerate(hash_[:4]):
-        if int(c, 16) % 2 == 0:
+        if int(c, 16) > drop_note:
             continue
 
         window = FRAMERATE // 4
@@ -175,19 +202,19 @@ def get_audio(timestamp: int, duration: int = 1) -> bytes:
             "C5",
             "D5",
             "E5",
+            "F5",
             "G5",
-            "A5",
         ]
         frequency = get_frequency(notes[int(hash_[i + 4], 16)])
 
         t = np.linspace(0, 1, window)
         audio = signal.sawtooth(2 * np.pi * frequency * t)
         audio[: int(window * (1 - duty))] = 0.0
-        buffer[i * window : (i + 1) * window] += audio
+        notes_buffer[i * window : (i + 1) * window] += audio * NOTES_VOLUME
 
-    processed = board(buffer, FRAMERATE, reset=False)
+    buffer += notes_fx(notes_buffer, FRAMERATE, reset=False)
 
-    return processed.astype(np.float32).tobytes()
+    return buffer.astype(np.float32).tobytes()
 
 
 def response() -> Iterator[bytes]:
