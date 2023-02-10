@@ -280,11 +280,12 @@ def stream() -> Response:
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
             "Expires": "0",
+            "Transfer-Encoding": "chunked",
         },
         mimetype="audio/mpeg",
     )
 
 
 if __name__ == "__main__":
-    # generate_song(29 * 24 * 60 * 60, "29_hour_long_song.wav")
+    # generate_song(29 * 24 * 60 * 60, "29_hour_long_song")
     app.run(host="0.0.0.0", port=8000, debug=True)
