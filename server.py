@@ -15,9 +15,10 @@ from hashlib import md5
 from typing import Iterator
 
 import numpy as np
-from flask import Flask
-from flask import Response
+from fastapi import FastAPI
 from scipy import signal
+from starlette.requests import Request
+from starlette.responses import StreamingResponse
 from pedalboard import Chorus, Delay, LadderFilter, Pedalboard, Reverb
 
 notes_fx = Pedalboard(
@@ -41,7 +42,7 @@ bass_fx = Pedalboard(
     ]
 )
 
-app = Flask(__name__)
+app = FastAPI()
 
 FRAMERATE = 24000
 PADS_VOLUME = 0.25
@@ -229,7 +230,7 @@ def get_audio(
     return buffer.astype(np.float32).tobytes()
 
 
-def response(duration: int = 1) -> Iterator[bytes]:
+async def response(duration: int = 1) -> Iterator[bytes]:
     """
     Encode the song on-the-fly as an MP3.
     """
@@ -269,12 +270,12 @@ def generate_song(song_duration: int, filename: str) -> None:
             timestamp += window_duration
 
 
-@app.route("/stream.mp3", methods=["GET"])
-def stream() -> Response:
+@app.get("/stream.mp3")
+async def stream() -> StreamingResponse:
     """
     Return an infinite stream of music.
     """
-    return Response(
+    return StreamingResponse(
         response(),
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -282,10 +283,9 @@ def stream() -> Response:
             "Expires": "0",
             "Transfer-Encoding": "chunked",
         },
-        mimetype="audio/mpeg",
+        media_type="audio/mpeg",
     )
 
 
 if __name__ == "__main__":
-    # generate_song(29 * 24 * 60 * 60, "29_hour_long_song")
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    generate_song(29 * 24 * 60 * 60, "29_hour_long_song")
