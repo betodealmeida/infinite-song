@@ -235,30 +235,34 @@ async def response(duration: int = 1) -> Iterator[bytes]:
     """
     Encode the song on-the-fly as an MP3.
     """
-    with subprocess.Popen(
-        f"ffmpeg -f f32le -acodec pcm_f32le -ar {FRAMERATE} -ac 1 -i pipe: -f mp3 pipe:".split(),
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    ) as pipe:
-        # align with a duration window
-        now = int(time.time())
-        timestamp = now - (now % duration) + duration
-        await asyncio.sleep(timestamp - time.time())
+    # align with a duration window
+    now = int(time.time())
+    timestamp = now - (now % duration) + duration
+    await asyncio.sleep(timestamp - time.time())
 
-        poll = select.poll()
-        poll.register(pipe.stdout, select.POLLIN)
+    while True:
+        with subprocess.Popen(
+            f"ffmpeg -f f32le -acodec pcm_f32le -ar {FRAMERATE} -ac 1 -i pipe: -f mp3 pipe:".split(),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ) as pipe:
+            poll = select.poll()
+            poll.register(pipe.stdout, select.POLLIN)
 
-        while True:
-            pipe.stdin.write(get_audio(timestamp, duration))
-            timestamp += duration
-            while poll.poll(0):
-                yield pipe.stdout.readline()
+            while True:
+                pipe.stdin.write(get_audio(timestamp, duration))
+                timestamp += duration
+                print("BEFORE")
+                while poll.poll(0):
+                    yield pipe.stdout.readline()
+                print("AFTER")
 
-            now = int(time.time())
-            offset = timestamp - now
-            if offset > 30:
-                await asyncio.sleep(offset - 30)
+                now = int(time.time())
+                offset = timestamp - now
+                buffer = 30
+                if offset > buffer:
+                    await asyncio.sleep(offset - buffer)
 
 
 def generate_song(song_duration: int, filename: str) -> None:
@@ -287,7 +291,7 @@ async def stream() -> StreamingResponse:
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
             "Expires": "0",
-            "Transfer-Encoding": "chunked",
+            # "Transfer-Encoding": "chunked",
         },
         media_type="audio/mpeg",
     )
