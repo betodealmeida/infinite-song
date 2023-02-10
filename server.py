@@ -255,6 +255,11 @@ async def response(duration: int = 1) -> Iterator[bytes]:
             while poll.poll(0):
                 yield pipe.stdout.readline()
 
+            now = int(time.time())
+            offset = timestamp - now
+            if offset > 30:
+                await asyncio.sleep(offset - 30)
+
 
 def generate_song(song_duration: int, filename: str) -> None:
     """
