@@ -42,10 +42,10 @@ bass_fx = Pedalboard(
 app = Flask(__name__)
 
 FRAMERATE = 24000
-PAD_VOLUME = 0.25
+PADS_VOLUME = 0.25
 BASS_VOLUME = 0.4
 NOTES_VOLUME = 0.8
-PAD_DURATION = 32
+PADS_DURATION = 16
 
 
 def get_frequency(note: str, A4: int = 440) -> float:
@@ -69,7 +69,7 @@ def get_frequency(note: str, A4: int = 440) -> float:
     return A4 * 2 ** ((key_number - 49) / 12)
 
 
-def get_chord(timestamp: int, duration: int = PAD_DURATION) -> [str]:
+def get_chord(timestamp: int, duration: int = PADS_DURATION) -> [str]:
     """
     Get the chord for a given instant.
     """
@@ -124,7 +124,7 @@ def get_envelope(  # pylint: disable=too-many-arguments
 
     TODO: allow passing ASDR parameters.
     """
-    envelope = np.ones(FRAMERATE * PAD_DURATION) * sustain
+    envelope = np.ones(FRAMERATE * PADS_DURATION) * sustain
 
     i = int(attack * FRAMERATE)
     envelope[:i] = np.linspace(0, 1, i)
@@ -138,7 +138,7 @@ def get_envelope(  # pylint: disable=too-many-arguments
     now = datetime.fromtimestamp(timestamp)
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     t0 = int(start.timestamp())
-    offset = ((timestamp - t0) % PAD_DURATION) * FRAMERATE
+    offset = ((timestamp - t0) % PADS_DURATION) * FRAMERATE
 
     return envelope[offset : offset + window]
 
@@ -161,7 +161,9 @@ def get_audio(
         t = np.linspace(timestamp, timestamp + duration, FRAMERATE * duration)
         audio = np.sin(2 * np.pi * frequency * t)
         audio *= get_envelope(timestamp - duration, FRAMERATE * duration)
-        pads_buffer += audio * PAD_VOLUME
+        k = 2 * np.pi / 17
+        slow_vibrato = 0.6 + 0.2 * ((np.sin(timestamp * k) + 1) / 2)
+        pads_buffer += audio * PADS_VOLUME * slow_vibrato
 
     buffer += pads_fx(pads_buffer, FRAMERATE, reset=False)
 
@@ -282,5 +284,5 @@ def stream() -> Response:
 
 
 if __name__ == "__main__":
-    generate_song(29 * 24 * 60 * 60, "29_hour_long_song.wav")
-    # app.run(host="0.0.0.0", port=8000, debug=True)
+    # generate_song(29 * 24 * 60 * 60, "29_hour_long_song.wav")
+    app.run(host="0.0.0.0", port=8000, debug=True)
