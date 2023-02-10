@@ -1,5 +1,7 @@
 """
 A server that generates an infinite stream of music.
+
+https://stackoverflow.com/a/61506979/807118
 """
 
 # pylint: disable=invalid-name
