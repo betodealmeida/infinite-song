@@ -288,11 +288,12 @@ async def stream() -> StreamingResponse:
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
             "Expires": "0",
-            # "Transfer-Encoding": "chunked",
+            "Transfer-Encoding": "chunked",
+            "Accept-Ranges": "bytes",
         },
         media_type="audio/mpeg",
     )
 
 
 if __name__ == "__main__":
-    uvicorn.run("server:app", port=8000, log_level="info")
+    uvicorn.run("server:app", port=8000, log_level="info", reload=True)
