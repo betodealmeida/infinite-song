@@ -8,19 +8,21 @@ https://stackoverflow.com/a/61506979/807118
 
 import asyncio
 import random
-import select
-import subprocess
 import time
 from datetime import datetime
 from hashlib import md5
+from io import BytesIO
 from typing import Iterator
 
 import numpy as np
+import uvicorn
 from fastapi import FastAPI
+from pedalboard import Chorus, Delay, LadderFilter, Pedalboard, Reverb
+from pydub import AudioSegment
 from scipy import signal
+from scipy.io import wavfile
 from starlette.requests import Request
 from starlette.responses import StreamingResponse
-from pedalboard import Chorus, Delay, LadderFilter, Pedalboard, Reverb
 
 notes_fx = Pedalboard(
     [
@@ -148,8 +150,9 @@ def get_envelope(  # pylint: disable=too-many-arguments
 
 
 def get_audio(
-    timestamp: int, duration: int = 1
-) -> bytes:  # pylint: disable=too-many-locals
+    timestamp: int,
+    duration: int = 1,
+) -> np.array:  # pylint: disable=too-many-locals
     """
     Build music snippet.
     """
@@ -228,7 +231,7 @@ def get_audio(
 
     buffer += notes_fx(notes_buffer, FRAMERATE, reset=False)
 
-    return buffer.astype(np.float32).tobytes()
+    return buffer.astype(np.float32)
 
 
 async def response(duration: int = 1) -> Iterator[bytes]:
@@ -241,26 +244,22 @@ async def response(duration: int = 1) -> Iterator[bytes]:
     await asyncio.sleep(timestamp - time.time())
 
     while True:
-        with subprocess.Popen(
-            f"ffmpeg -f f32le -acodec pcm_f32le -ar {FRAMERATE} -ac 1 -i pipe: -f mp3 pipe:".split(),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        ) as pipe:
-            poll = select.poll()
-            poll.register(pipe.stdout, select.POLLIN)
+        buffer = BytesIO()
+        wavfile.write(buffer, FRAMERATE, get_audio(timestamp, duration))
+        buffer.seek(0)
+        segment = AudioSegment.from_file(buffer, format="wav")
 
-            while True:
-                pipe.stdin.write(get_audio(timestamp, duration))
-                timestamp += duration
-                while poll.poll(0):
-                    yield pipe.stdout.readline()
+        mp3_chunk = BytesIO()
+        segment.export(mp3_chunk, format="mp3")
+        mp3_chunk.seek(0)
+        yield mp3_chunk.getvalue()
 
-                now = int(time.time())
-                offset = timestamp - now
-                buffer = 30
-                if offset > buffer:
-                    await asyncio.sleep(offset - buffer)
+        timestamp += duration
+        now = int(time.time())
+        offset = timestamp - now
+        buffer = 30
+        if offset > buffer:
+            await asyncio.sleep(offset - buffer)
 
 
 def generate_song(song_duration: int, filename: str) -> None:
@@ -296,4 +295,4 @@ async def stream() -> StreamingResponse:
 
 
 if __name__ == "__main__":
-    generate_song(29 * 24 * 60 * 60, "29_hour_long_song")
+    uvicorn.run("server:app", port=8000, log_level="info")
