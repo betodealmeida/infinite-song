@@ -249,10 +249,10 @@ async def response(duration: int = 1) -> Iterator[bytes]:
         buffer.seek(0)
         segment = AudioSegment.from_file(buffer, format="wav")
 
-        mp3_chunk = BytesIO()
-        segment.export(mp3_chunk, format="mp3")
-        mp3_chunk.seek(0)
-        yield mp3_chunk.getvalue()
+        ogg_chunk = BytesIO()
+        segment.export(ogg_chunk, format="ogg")
+        ogg_chunk.seek(0)
+        yield ogg_chunk.getvalue()
 
         timestamp += duration
         now = int(time.time())
@@ -277,7 +277,7 @@ def generate_song(song_duration: int, filename: str) -> None:
             timestamp += window_duration
 
 
-@app.get("/stream.mp3")
+@app.get("/stream.ogg")
 async def stream() -> StreamingResponse:
     """
     Return an infinite stream of music.
@@ -291,7 +291,7 @@ async def stream() -> StreamingResponse:
             "Transfer-Encoding": "chunked",
             "Accept-Ranges": "bytes",
         },
-        media_type="audio/mpeg",
+        media_type="audio/ogg.ogv",
     )
 
 
