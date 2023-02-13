@@ -156,80 +156,95 @@ def get_audio(
     """
     Build music snippet.
     """
-    hash_ = md5(str(timestamp).encode()).hexdigest()
     buffer = np.zeros(FRAMERATE * duration)
 
-    # pads
-    chord = get_chord(timestamp)
-    pads_buffer = np.zeros(FRAMERATE * duration)
-    for note in chord:
-        frequency = get_frequency(note)
+    for j in range(duration):
+        hash_ = md5(str(timestamp).encode()).hexdigest()
 
-        t = np.linspace(timestamp, timestamp + duration, FRAMERATE * duration)
-        audio = np.sin(2 * np.pi * frequency * t)
-        audio *= get_envelope(timestamp - duration, FRAMERATE * duration)
-        k = 2 * np.pi / 17
-        slow_vibrato = 0.6 + 0.2 * ((np.sin(timestamp * k) + 1) / 2)
-        pads_buffer += audio * PADS_VOLUME * slow_vibrato
+        # pads
+        chord = get_chord(timestamp)
+        pads_buffer = np.zeros(FRAMERATE)
+        for note in chord:
+            frequency = get_frequency(note)
 
-    buffer += pads_fx(pads_buffer, FRAMERATE, reset=False)
+            t = np.linspace(timestamp, timestamp + 1, FRAMERATE)
+            audio = np.sin(2 * np.pi * frequency * t)
+            audio *= get_envelope(timestamp - 1, FRAMERATE)
+            k = 2 * np.pi / 17
+            slow_vibrato = 0.6 + 0.2 * ((np.sin(timestamp * k) + 1) / 2)
+            pads_buffer += audio * PADS_VOLUME * slow_vibrato
 
-    # bass
-    root = chord[0]
-    frequency = get_frequency(root) / 4.0
-    t = np.linspace(timestamp, timestamp + duration, FRAMERATE * duration)
-    audio = signal.sawtooth(2 * np.pi * frequency * t)
-    audio *= get_envelope(
-        timestamp - duration,
-        FRAMERATE * duration,
-        attack=0.1,
-        decay=0.5,
-        sustain=0.9,
-        release=0.5,
-    )
-    buffer += bass_fx(audio * BASS_VOLUME, FRAMERATE, reset=False)
+        buffer[j * FRAMERATE : (j + 1) * FRAMERATE] += pads_fx(
+            pads_buffer,
+            FRAMERATE,
+            reset=False,
+        )
 
-    # generate 0-4 notes
-    k = 2 * np.pi / 60
-    drop_note = 4 + 8 * ((np.sin(timestamp * k) + 1) / 2)
-    notes_buffer = np.zeros(FRAMERATE * duration)
-    for i, c in enumerate(hash_[:4]):
-        if int(c, 16) > drop_note:
-            continue
-
-        window = FRAMERATE // 4
-
-        # 5 minute LFO controls duty of the notes
-        k = 2 * np.pi / 301
-        duty = ((np.sin(timestamp * k) * 0.8) + 1) / 2
-
-        # choose note frequency
-        notes = [
-            "A3",
-            "C3",
-            "D3",
-            "E3",
-            "G3",
-            "A4",
-            "C4",
-            "D4",
-            "E4",
-            "G4",
-            "A5",
-            "C5",
-            "D5",
-            "E5",
-            "F5",
-            "G5",
-        ]
-        frequency = get_frequency(notes[int(hash_[i + 4], 16)])
-
-        t = np.linspace(0, 1, window)
+        # bass
+        root = chord[0]
+        frequency = get_frequency(root) / 4.0
+        t = np.linspace(timestamp, timestamp + 1, FRAMERATE)
         audio = signal.sawtooth(2 * np.pi * frequency * t)
-        audio[: int(window * (1 - duty))] = 0.0
-        notes_buffer[i * window : (i + 1) * window] += audio * NOTES_VOLUME
+        audio *= get_envelope(
+            timestamp - 1,
+            FRAMERATE,
+            attack=0.1,
+            decay=0.5,
+            sustain=0.9,
+            release=0.5,
+        )
+        buffer[j * FRAMERATE : (j + 1) * FRAMERATE] += bass_fx(
+            audio * BASS_VOLUME,
+            FRAMERATE,
+            reset=False,
+        )
 
-    buffer += notes_fx(notes_buffer, FRAMERATE, reset=False)
+        # generate 0-4 notes
+        k = 2 * np.pi / 60
+        drop_note = 4 + 8 * ((np.sin(timestamp * k) + 1) / 2)
+        notes_buffer = np.zeros(FRAMERATE)
+        for i, c in enumerate(hash_[:4]):
+            if int(c, 16) > drop_note:
+                continue
+
+            window = FRAMERATE // 4
+
+            # 5 minute LFO controls duty of the notes
+            k = 2 * np.pi / 301
+            duty = ((np.sin(timestamp * k) * 0.8) + 1) / 2
+
+            # choose note frequency
+            notes = [
+                "A3",
+                "C3",
+                "D3",
+                "E3",
+                "G3",
+                "A4",
+                "C4",
+                "D4",
+                "E4",
+                "G4",
+                "A5",
+                "C5",
+                "D5",
+                "E5",
+                "F5",
+                "G5",
+            ]
+            frequency = get_frequency(notes[int(hash_[i + 4], 16)])
+
+            t = np.linspace(0, 1, window)
+            audio = signal.sawtooth(2 * np.pi * frequency * t)
+            audio[: int(window * (1 - duty))] = 0.0
+            notes_buffer[i * window : (i + 1) * window] += audio * NOTES_VOLUME
+
+        buffer[j * FRAMERATE : (j + 1) * FRAMERATE] += notes_fx(
+            notes_buffer,
+            FRAMERATE,
+            reset=False,
+        )
+        timestamp += 1
 
     return buffer.astype(np.float32)
 
@@ -240,7 +255,7 @@ async def response(duration: int = 1) -> Iterator[bytes]:
     """
     # align with a duration window
     now = int(time.time())
-    timestamp = now - (now % duration) + duration
+    timestamp = now + 1
     await asyncio.sleep(timestamp - time.time())
 
     while True:
@@ -283,7 +298,7 @@ async def stream() -> StreamingResponse:
     Return an infinite stream of music.
     """
     return StreamingResponse(
-        response(),
+        response(duration=16),
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
